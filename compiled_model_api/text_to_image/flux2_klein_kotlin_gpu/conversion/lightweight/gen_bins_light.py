@@ -41,6 +41,7 @@ import os
 import struct
 import time
 
+import ml_dtypes
 import numpy as np
 import requests
 import torch
@@ -72,7 +73,13 @@ def rget(url, rng):
             r = requests.get(url, headers={"Range": rng}, timeout=60)
             r.raise_for_status()
             return r.content
-        except Exception as e:  # noqa: BLE001 - transient CDN drops are common
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status is not None and 400 <= status < 500:
+                raise SystemExit(f"HTTP {status} for range {rng}; not retrying (client error)")
+            print(f"  [retry {attempt}] HTTP {status}")
+            time.sleep(3)
+        except requests.RequestException as e:
             print(f"  [retry {attempt}] {type(e).__name__}")
             time.sleep(3)
     raise SystemExit(f"range GET failed: {rng}")
@@ -84,7 +91,6 @@ def st_header(url):
 
 
 def st_fetch(url, hdr, base, key):
-    import ml_dtypes
     o = hdr[key]["data_offsets"]
     raw = rget(url, f"bytes={base + o[0]}-{base + o[1] - 1}")
     dt = {"BF16": ml_dtypes.bfloat16, "F32": np.float32, "F16": np.float16}[hdr[key]["dtype"]]
@@ -118,8 +124,8 @@ def main():
         np.asarray(a, dtype="<i4").tofile(os.path.join(args.out, f"{name}.bin"))
 
     # ---- transformer: meta (no RAM) + materialize pos_embed + time_guidance_embed ----
-    cfg = {k: v for k, v in json.load(open(f"{args.cache}/transformer/config.json")).items()
-           if not k.startswith("_")}
+    with open(f"{args.cache}/transformer/config.json") as f:
+        cfg = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
     with init_empty_weights():
         tr = Flux2Transformer2DModel(**cfg)
     tr.pos_embed.to_empty(device="cpu")
@@ -168,7 +174,8 @@ def main():
     vhdr, vbase = st_header(vurl)
     bn_mean = torch.from_numpy(st_fetch(vurl, vhdr, vbase, "bn.running_mean"))
     bn_var = torch.from_numpy(st_fetch(vurl, vhdr, vbase, "bn.running_var"))
-    eps = json.load(open(f"{args.cache}/vae/config.json")).get("batch_norm_eps", 1e-5)
+    with open(f"{args.cache}/vae/config.json") as f:
+        eps = json.load(f).get("batch_norm_eps", 1e-5)
     bn_std = torch.sqrt(bn_var + eps)
 
     # ---- prompt-dependent tensors: tokenize + embed (fp16 table) + mask + enc rotary ----
@@ -176,17 +183,17 @@ def main():
     if embed_path is None:
         embed_path = hf_hub_download(LITERT_REPO, "tokenizer/qwen_embed_fp16.bin",
                                      local_dir=args.cache)
+    qcfg = AutoConfig.from_pretrained(f"{args.cache}/text_encoder")
     tok = AutoTokenizer.from_pretrained(f"{args.cache}/tokenizer")
     text = tok.apply_chat_template([{"role": "user", "content": args.prompt}], tokenize=False,
                                    add_generation_prompt=True, enable_thinking=False)
     enc = tok(text, return_tensors="pt", padding="max_length", truncation=True, max_length=SEQ_TXT)
     ids, am = enc["input_ids"], enc["attention_mask"]
-    tbl = np.fromfile(embed_path, dtype=np.float16).reshape(-1, 2560)
+    tbl = np.fromfile(embed_path, dtype=np.float16).reshape(-1, qcfg.hidden_size)
     inputs_embeds = torch.from_numpy(tbl[ids[0].numpy()].astype(np.float32))[None]
     keep = am[0].float()
     mask = (torch.full((SEQ_TXT, SEQ_TXT), NEG).triu(1) + torch.where(keep > 0, 0.0, NEG)[None, :])[None, None]
     mask = mask.expand(1, ENC_HEADS, SEQ_TXT, SEQ_TXT).contiguous()
-    qcfg = AutoConfig.from_pretrained(f"{args.cache}/text_encoder")
     enc_cos, enc_sin = Qwen3RotaryEmbedding(qcfg)(inputs_embeds, torch.arange(SEQ_TXT)[None])
     print(f"[text] {int(keep.sum())}/{SEQ_TXT} real tokens for prompt: {args.prompt!r}")
 
