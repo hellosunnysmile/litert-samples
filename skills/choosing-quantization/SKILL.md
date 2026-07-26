@@ -16,7 +16,8 @@ model without noticing.
 ## The result to start from
 
 Qwen3-0.6B, one float model quantized every way, measured on an M-series GPU with
-**greedy** decoding and an 11-case suite:
+**greedy** decoding and an 11-case suite. (Two more models follow — the conclusion
+changes with model size, so read both sections before choosing.)
 
 | Build | Size | Decode | Quality |
 | :-- | --: | --: | --: |
@@ -36,6 +37,47 @@ Read three things out of it:
 3. **It's the down-projections that can't take 4 bits.** Protecting 27 of them beat
    protecting 110 attention projections, which cost 2.5× the bytes for nothing.
    Position in the stack (first/last blocks) didn't matter at all.
+
+## Model size decides how much quantization a model can take
+
+Three models through the same six builds, same machine, greedy decoding, 11-case suite.
+Read the **quality** column down the table, not across:
+
+| Build | Qwen3-0.6B | Gemma 3 270M | Gemma 3 1B |
+| :-- | --: | --: | --: |
+| all int8 | 9/11 | **8/11** | 9/11 |
+| int4 + int8 down-projections | **10/11** | 7/11 | **10/11** |
+| int4 + int8 attention projections | 9/11 | 7/11 | 9/11 |
+| int4 + int8 first/last blocks | 6/11 | 3/11 | 9/11 |
+| all int4, blockwise-32 | 5/11 | 4/11 | 8/11 |
+| int4 + int8 embedding | — | 4/11 | 9/11 |
+
+**Bigger models absorb quantization; small ones don't.** At 1B, uniform int4 costs one
+case and every mixed build matches int8 while being 35–41% smaller and 26–34% faster —
+int8 is dominated outright. At 0.6B and below, uniform int4 is a cliff (9/11 → 2/11 on
+Qwen3), and on the 270M model *nothing* int4-based clears a 0.7 gate at all.
+
+So the starting point depends on the size you're working with:
+
+| Model size | Start with | Because |
+| :-- | :-- | :-- |
+| ≥ 1B | `attn8` or `down8`, and try uniform int4 | int8 is likely dominated; the risk is low |
+| ~0.5–1B | `down8`, and check it against int8 | mixed usually wins, uniform int4 usually doesn't |
+| < 500M | int8, and treat every int4 build as a candidate to disprove | the model may have no headroom at all |
+
+Three things held on all three models:
+
+- **`down8` never lost.** It scored at or above every other policy every time (10/11,
+  7/11, 10/11), even where it wasn't the fastest.
+- **Protecting the embedding is a bad trade.** Largest artifact of the six on every
+  model, and never the best quality.
+- **The regexes generalise.** Llama-style and Gemma-style module names differ, but the
+  `nn.Linear` attribute names don't, and the dtype readback confirms the matches.
+
+One thing that stopped holding at 1B: **size stopped predicting speed.** The 1128 MB
+`embed8` build decodes at 87.8 tok/s while the 546 MB uniform-int4 build manages 77.3 —
+int4 unpacking on the embedding lookup costs more than the bytes it saves. Don't infer
+throughput from a file listing; measure it.
 
 ## What transferred to a second model, and what didn't
 
