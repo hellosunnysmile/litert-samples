@@ -1,0 +1,15 @@
+{
+  "source": "Qwen/Qwen3-0.6B",
+  "model_id": "Qwen3-0.6B-produced",
+  "quantize": "mixed_int4_down8",
+  "label": "",
+  "author": "",
+  "task": "text_generation",
+  "prefill_lengths": [
+    128
+  ],
+  "cache_length": 1024,
+  "accelerator": "cpu",
+  "trust_remote_code": false,
+  "extra": {}
+}
