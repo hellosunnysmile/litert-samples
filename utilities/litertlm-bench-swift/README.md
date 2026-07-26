@@ -19,14 +19,27 @@ land in the same columns instead of being retyped.
 A command line can't reach either, so the same benchmark also exists as a test:
 
 ```bash
-xcodebuild test -scheme litertlm-bench \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
-  TEST_RUNNER_LITERTLM_MODEL=/path/to/model.litertlm
+SIM=$(xcrun simctl list devices available -j | ...)      # any booted iPhone
+xcrun simctl boot "$SIM"
+
+# xcodebuild's TEST_RUNNER_* forwarding does not reach a SwiftPM test bundle — the
+# xctest process inherits the *simulator's* environment, so set it there.
+xcrun simctl spawn "$SIM" launchctl setenv LITERTLM_MODEL /path/to/model.litertlm
+xcodebuild test -scheme litertlm-bench -destination "platform=iOS Simulator,id=$SIM"
 ```
 
-`TEST_RUNNER_LITERTLM_BACKEND` (`cpu`/`gpu`), `..._PREFILL` and `..._DECODE` tune the
-run. On the simulator the model can be a host path; on a device it has to be inside the
-app bundle or its container.
+```
+LITERTLM_BENCH {"backend":"cpu","decode_tps":25.86,"load_ms":1133.78,
+                "prefill_tps":70.36,"ttft_ms":1857.99}
+```
+
+`LITERTLM_BACKEND` (`cpu`/`gpu`), `LITERTLM_PREFILL` and `LITERTLM_DECODE` tune the run,
+set the same way. On the simulator the model can be a host path; on a device it has to be
+inside the app bundle or its container.
+
+**What the simulator number is worth:** 25.9 tok/s against 41.1 for the same artifact
+run natively on the same Mac. The simulator is a Mac wearing a costume — it is the right
+place to prove the code path works and the wrong place to decide what to ship.
 
 Two things gate the phone paths, and neither is a code problem:
 

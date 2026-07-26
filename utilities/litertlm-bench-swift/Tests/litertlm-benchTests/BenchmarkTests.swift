@@ -13,21 +13,28 @@ final class BenchmarkTests: XCTestCase {
 
   /// Set `TEST_RUNNER_LITERTLM_MODEL` to a `.litertlm` path readable by the target.
   /// On the simulator that can be a host path; on a device it has to be inside the app.
+  /// xcodebuild forwards `TEST_RUNNER_FOO` as `FOO` for app-hosted tests but passes it
+  /// through unchanged to a SwiftPM test bundle, so accept either spelling.
+  private func setting(_ name: String) -> String? {
+    let environment = ProcessInfo.processInfo.environment
+    return environment[name] ?? environment["TEST_RUNNER_\(name)"]
+  }
+
   func testBenchmarkModel() async throws {
-    guard let modelPath = ProcessInfo.processInfo.environment["LITERTLM_MODEL"] else {
+    guard let modelPath = setting("LITERTLM_MODEL") else {
       throw XCTSkip("set TEST_RUNNER_LITERTLM_MODEL to a .litertlm path")
     }
     XCTAssertTrue(FileManager.default.fileExists(atPath: modelPath),
                   "model not readable from this target: \(modelPath)")
 
-    let backendName = ProcessInfo.processInfo.environment["LITERTLM_BACKEND"] ?? "cpu"
+    let backendName = setting("LITERTLM_BACKEND") ?? "cpu"
     let backend = try XCTUnwrap(Backend(rawValue: backendName))
 
     let info = try await benchmark(
       modelPath: modelPath,
       backend: backend,
-      prefillTokens: Int(ProcessInfo.processInfo.environment["LITERTLM_PREFILL"] ?? "") ?? 128,
-      decodeTokens: Int(ProcessInfo.processInfo.environment["LITERTLM_DECODE"] ?? "") ?? 64,
+      prefillTokens: Int(setting("LITERTLM_PREFILL") ?? "") ?? 128,
+      decodeTokens: Int(setting("LITERTLM_DECODE") ?? "") ?? 64,
       prompt: "Write three sentences about why on-device AI matters."
     )
 
