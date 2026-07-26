@@ -1,0 +1,15 @@
+{
+  "source": "unsloth/gemma-3-270m-it",
+  "model_id": "Gemma3-270M-produced",
+  "quantize": "mixed_int4_down8",
+  "label": "",
+  "author": "",
+  "task": "text_generation",
+  "prefill_lengths": [
+    128
+  ],
+  "cache_length": 1024,
+  "accelerator": "cpu",
+  "trust_remote_code": false,
+  "extra": {}
+}
