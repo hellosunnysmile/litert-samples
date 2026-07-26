@@ -6,8 +6,8 @@ a recipe that silently does nothing looks exactly like one that works — until 
 artifact comes out bigger than the int8 build you were trying to beat.
 
     python inspect_quantization.py model.tflite
-    python inspect_quantization.py model.tflite --by-layer
-    python inspect_quantization.py model.tflite --match Linear_down_proj
+    python inspect_quantization.py model.litertlm --by-layer
+    python inspect_quantization.py model.litertlm --match Linear_down_proj
 
 Run it with the interpreter that has `ai-edge-quantizer` installed (the conversion
 environment, not the serving one).
@@ -28,6 +28,7 @@ import re
 import sys
 
 try:
+    from ai_edge_quantizer.utils import litertlm_utils
     from ai_edge_quantizer.utils import tfl_flatbuffer_utils as fb
 except ImportError:  # pragma: no cover - environment problem, not a code path
     sys.exit(
@@ -44,6 +45,22 @@ MIN_WEIGHT_BYTES = 100_000
 
 #: The part of a scope name a human cares about: which block, which projection.
 LAYER_PATTERN = re.compile(r"(DecoderLayer_\d+|Linear_[a-z_0-9]+|Embedding_[a-z_]+)")
+
+
+def read(path: str):
+    """Read a `.tflite`, or the model inside a `.litertlm` bundle.
+
+    A served artifact is nearly always the bundle, so requiring the raw flatbuffer
+    would mean this tool can't inspect the thing you actually shipped.
+    """
+    if not path.endswith(".litertlm"):
+        return fb.read_model(path)
+    bundle = litertlm_utils.LiteRTLMFile(path)
+    for index in range(len(bundle.sections)):
+        model = bundle.read_model(index)
+        if model is not None:
+            return model
+    sys.exit(f"no TFLite model found inside '{path}'")
 
 
 def op_name(model, operator) -> str:
@@ -78,7 +95,7 @@ def label(scope: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("model", help="Path to a .tflite file.")
+    parser.add_argument("model", help="Path to a .tflite or .litertlm file.")
     parser.add_argument("--subgraph", type=int, default=0,
                         help="Which subgraph to read (0 = the prefill signature).")
     parser.add_argument("--by-layer", action="store_true",
@@ -88,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
                              "same expression a quantization recipe would use.")
     args = parser.parse_args(argv)
 
-    model = fb.read_model(args.model)
+    model = read(args.model)
     if args.subgraph >= len(model.subgraphs):
         print(f"model has {len(model.subgraphs)} subgraph(s)", file=sys.stderr)
         return 1
