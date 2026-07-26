@@ -37,7 +37,39 @@ Read three things out of it:
    protecting 110 attention projections, which cost 2.5× the bytes for nothing.
    Position in the stack (first/last blocks) didn't matter at all.
 
-Start with `down8`. Don't assume it transfers — re-run the comparison per model.
+## What transferred to a second model, and what didn't
+
+The same six builds on Gemma 3 270M (GPU, greedy, same suite):
+
+| Build | Size | Decode | Quality |
+| :-- | --: | --: | --: |
+| all int8 | 272 MB | 164.6 tok/s | **8/11** |
+| int4 + int8 down-projections | 162 MB | 189.1 tok/s | 7/11 |
+| int4 + int8 attention projections | 165 MB | 188.0 tok/s | 7/11 |
+| int4 + int8 first/last blocks | 162 MB | 187.2 tok/s | 3/11 |
+| all int4, blockwise-32 | 152 MB | 189.4 tok/s | 4/11 |
+| int4 + int8 embedding | 478 MB | 186.0 tok/s | 4/11 |
+
+**The winner flipped.** On Qwen3 the mixed build dominated int8 outright; here it is 40%
+smaller and 15% faster but one case worse, so against a 0.7 gate the int8 build is what
+gets served. Same policies, same machine, opposite verdicts.
+
+What did transfer, on both:
+
+- **Protecting projection matmuls works** — `down8` and `attn8` recover most of what
+  uniform int4 loses (4/11 → 7/11 here, 5/11 → 10/11 on Qwen3).
+- **Protecting by position, or protecting the embedding, does not.** `edges8` was the
+  worst build on both models. `embed8` produced the *largest* artifact of the six and no
+  quality benefit at all.
+- **The regexes generalise.** Gemma 3 names its modules `Gemma3DecoderLayer` /
+  `Gemma3MLP`, but the `nn.Linear` attribute names are shared, and the dtype readback
+  confirms the matches.
+
+So: **start with `down8`, and always re-run the comparison.** The policy that wins is
+model-dependent; the policies that lose appear to be universal. Notice too that Gemma 3
+270M is embedding-dominated (80 MB of a 133 MB artifact even at 4 bits), which is why
+matmul precision moves so little of its speed — check that shape before predicting what
+a quantization will buy.
 
 ## Writing the recipe
 
