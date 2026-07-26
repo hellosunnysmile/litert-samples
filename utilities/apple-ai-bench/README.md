@@ -19,9 +19,17 @@ swift run apple-ai-bench --runtime coreai
 
 | Target | MLX | Core AI |
 | :-- | :-- | :-- |
-| This Mac (M1 Pro, macOS 26.5) | needs the Metal toolchain (below) | **unavailable — `deviceNotEligible`** |
-| iOS Simulator | MLX has no simulator GPU | expected unavailable |
+| This Mac (M1 Pro, macOS 26.5) | **200.8 tok/s**, 1.17 s TTFT | **unavailable — `deviceNotEligible`** |
+| iOS Simulator | no GPU for MLX | expected unavailable |
 | iPhone 17 Pro | ready, needs signing | ready, needs signing |
+
+The MLX number is `mlx-community/Qwen3-0.6B-4bit`, and it cross-checks: ETF's Python
+`mlx-lm` benchmark of the same weights on the same machine reported 198–216 tok/s. Two
+independent paths agreeing is the only reason to believe either.
+
+**Build Release, or the number is fiction.** The same binary built Debug reports 60.2
+tok/s — 3.3x slower — because SwiftPM's default configuration turns off optimization.
+Every measurement here uses `-configuration Release`.
 
 `--runtime coreai` reports *why* rather than just failing, because the reasons need
 different fixes: `deviceNotEligible` is hardware, `appleIntelligenceNotEnabled` is a
