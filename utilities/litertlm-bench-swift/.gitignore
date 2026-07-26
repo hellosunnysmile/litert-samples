@@ -1,0 +1,4 @@
+# SwiftPM build products and resolved checkouts — hundreds of MB, all regenerable.
+.build/
+.swiftpm/
+Package.resolved
