@@ -83,7 +83,35 @@ can't stream only support the former, and it is not comparable.
 - The first GPU run of an artifact pays for kernel compilation. Warm up, or measure cold
   deliberately, but don't mix the two in one table.
 
-## 6. Keep the history, not just the verdict
+## 6. Say which machine a number describes
+
+`darwin/arm64` is not a machine. An M1 Air and an M4 Max both report it and differ
+several-fold in GPU throughput, so quoting one at the other is how a shared performance
+database becomes misleading rather than useful.
+
+Keep two things apart:
+
+- A **fingerprint** — chip, CPU/GPU core counts, RAM, OS version — recorded with every
+  measurement, so two numbers can be known to be comparable at all.
+- A **platform class** — platform × accelerator × framework, e.g. "macOS arm64 · GPU ·
+  litert-lm". This is what a *published* recommendation is for. Optimizing for the class
+  is the useful thing to publish; nobody can pre-optimize for every machine.
+
+Then, when answering "what should I run here", fall back one tier at a time and **name
+the tier you used**:
+
+```bash
+etf perf --reference <model-id>
+# This machine: Apple M1 Pro, 16-core GPU, 32 GB, darwin 26.5.2
+# Best decode_tps (higher is better), measured on **this machine**:
+#      196.6  Gemma3-270M-produced  gpu  …_mixed_int4_down8.litertlm  (Apple M1 Pro)
+```
+
+this machine → the same chip → the same chip family → the same platform class. Below
+that floor, the honest answer is "benchmark it locally", not a number from unrelated
+hardware. `--min-tier` sets the floor.
+
+## 7. Keep the history, not just the verdict
 
 Speed and quality both go in one perf database (`~/.etf/perf.db`), keyed by model,
 variant, accelerator, engine and device. That is what makes "did this get worse?"
@@ -93,6 +121,11 @@ answerable at all:
 etf perf --compare                      # best decode per variant/accelerator
 etf perf --compare --metric ttft_ms     # ...or by latency
 etf perf <model-id> --kind eval         # quality history
+etf perf --export perf-snapshot.json    # a publishable, reviewable snapshot
 ```
+
+Export JSON, not the SQLite file: a database is a binary blob that conflicts on every
+merge, while a schema-versioned JSON snapshot diffs, reviews and merges — and it is an
+append-only record of facts, which is what measurements are.
 
 A measurement you didn't record is a measurement you will take again.
